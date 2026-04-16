@@ -1,11 +1,11 @@
 import streamlit as st
 import numpy as np
 from PIL import Image
-import tflite_runtime.interpreter as tflite
+import onnxruntime as ort
 
 st.title("FSL ABC Image Classifier")
 
-# Class mapping
+# Class label mapping
 labels = {
     0: "A",
     1: "B",
@@ -14,18 +14,16 @@ labels = {
 
 @st.cache_resource
 def load_model():
-    interpreter = tflite.Interpreter(model_path="model.tflite")
-    interpreter.allocate_tensors()
-    return interpreter
+    return ort.InferenceSession("model.onnx")
 
-interpreter = load_model()
+session = load_model()
 
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+input_name = session.get_inputs()[0].name
+output_name = session.get_outputs()[0].name
 
 
-def preprocess_image(image, target_size=(64, 64)):
-    image = image.resize(target_size)
+def preprocess(image):
+    image = image.resize((64,64))
     image = np.array(image)
 
     if image.shape[-1] == 4:
@@ -37,26 +35,25 @@ def preprocess_image(image, target_size=(64, 64)):
     return image
 
 
-uploaded_file = st.file_uploader("Upload image", type=["jpg","png","jpeg"])
+uploaded = st.file_uploader("Upload image", type=["jpg","png","jpeg"])
 
-if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image)
+if uploaded:
+    img = Image.open(uploaded)
+    st.image(img)
 
     if st.button("Predict"):
 
-        processed = preprocess_image(image)
+        input_data = preprocess(img)
 
-        interpreter.set_tensor(input_details[0]['index'], processed)
-        interpreter.invoke()
+        prediction = session.run(
+            [output_name],
+            {input_name: input_data}
+        )[0]
 
-        prediction = interpreter.get_tensor(output_details[0]['index'])
+        pred = int(np.argmax(prediction))
+        conf = float(np.max(prediction))
 
-        pred_class = int(np.argmax(prediction))
-        confidence = float(np.max(prediction))
-
-        # Convert index to letter
-        predicted_letter = labels.get(pred_class, "Unknown")
+        predicted_letter = labels.get(pred, "Unknown")
 
         st.success(f"Prediction: {predicted_letter}")
-        st.info(f"Confidence: {confidence:.4f}")
+        st.info(f"Confidence: {conf:.4f}")
