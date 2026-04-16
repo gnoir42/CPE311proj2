@@ -1,22 +1,31 @@
 import streamlit as st
 import numpy as np
 from PIL import Image
-import onnxruntime as ort
+import tflite_runtime.interpreter as tflite
 
 st.title("FSL ABC Image Classifier")
 
+# Class mapping
+labels = {
+    0: "A",
+    1: "B",
+    2: "C"
+}
+
 @st.cache_resource
 def load_model():
-    return ort.InferenceSession("model.onnx")
+    interpreter = tflite.Interpreter(model_path="model.tflite")
+    interpreter.allocate_tensors()
+    return interpreter
 
-session = load_model()
+interpreter = load_model()
 
-input_name = session.get_inputs()[0].name
-output_name = session.get_outputs()[0].name
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 
-def preprocess(image):
-    image = image.resize((64,64))
+def preprocess_image(image, target_size=(64, 64)):
+    image = image.resize(target_size)
     image = np.array(image)
 
     if image.shape[-1] == 4:
@@ -28,23 +37,26 @@ def preprocess(image):
     return image
 
 
-uploaded = st.file_uploader("Upload image", type=["jpg","png","jpeg"])
+uploaded_file = st.file_uploader("Upload image", type=["jpg","png","jpeg"])
 
-if uploaded:
-    img = Image.open(uploaded)
-    st.image(img)
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    st.image(image)
 
     if st.button("Predict"):
 
-        input_data = preprocess(img)
+        processed = preprocess_image(image)
 
-        prediction = session.run(
-            [output_name],
-            {input_name: input_data}
-        )[0]
+        interpreter.set_tensor(input_details[0]['index'], processed)
+        interpreter.invoke()
 
-        pred = int(np.argmax(prediction))
-        conf = float(np.max(prediction))
+        prediction = interpreter.get_tensor(output_details[0]['index'])
 
-        st.success(f"Prediction: {pred}")
-        st.info(f"Confidence: {conf:.4f}")
+        pred_class = int(np.argmax(prediction))
+        confidence = float(np.max(prediction))
+
+        # Convert index to letter
+        predicted_letter = labels.get(pred_class, "Unknown")
+
+        st.success(f"Prediction: {predicted_letter}")
+        st.info(f"Confidence: {confidence:.4f}")
