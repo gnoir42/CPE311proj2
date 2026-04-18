@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import onnxruntime as ort
+import cv2
 
 st.title("FSL ABC Image Classifier")
 
@@ -29,7 +30,6 @@ model_files = {
 }
 
 model_path = model_files[model_choice]
-
 
 # -------------------------
 # LOAD MODEL
@@ -60,12 +60,7 @@ def preprocess(image, session):
         width = input_shape[2]
         channel_first = False
 
-    image = image.resize((width, height))
-    image = np.array(image)
-
-    if image.shape[-1] == 4:
-        image = image[..., :3]
-
+    image = cv2.resize(image, (width, height))
     image = image.astype(np.float32) / 255.0
 
     if channel_first:
@@ -77,37 +72,117 @@ def preprocess(image, session):
 
 
 # -------------------------
-# MULTIPLE IMAGE UPLOAD
+# PREDICTION FUNCTION
 # -------------------------
-uploaded_files = st.file_uploader(
-    "Upload one or more images",
-    type=["jpg","jpeg","png"],
-    accept_multiple_files=True
+def predict(image):
+
+    input_data = preprocess(image, session)
+
+    prediction = session.run(
+        [output_name],
+        {input_name: input_data}
+    )[0]
+
+    pred_index = int(np.argmax(prediction))
+    confidence = float(np.max(prediction))
+
+    predicted_letter = labels.get(pred_index, "Unknown")
+
+    return predicted_letter, confidence
+
+
+# -------------------------
+# INPUT TYPE SELECTION
+# -------------------------
+input_type = st.radio(
+    "Choose Input Method",
+    ["Upload Image", "Use Camera"]
 )
 
-if uploaded_files:
 
-    if st.button("Predict All Images"):
+# ==========================================================
+# IMAGE UPLOAD MODE
+# ==========================================================
+if input_type == "Upload Image":
 
-        for file in uploaded_files:
+    uploaded_files = st.file_uploader(
+        "Upload one or more images",
+        type=["jpg","jpeg","png"],
+        accept_multiple_files=True
+    )
 
-            img = Image.open(file).convert("RGB")
+    if uploaded_files:
 
-            st.image(img, caption=file.name, width=200)
+        if st.button("Predict Images"):
 
-            input_data = preprocess(img, session)
+            for file in uploaded_files:
 
-            prediction = session.run(
-                [output_name],
-                {input_name: input_data}
-            )[0]
+                img = Image.open(file).convert("RGB")
+                img_np = np.array(img)
 
-            pred_index = int(np.argmax(prediction))
-            confidence = float(np.max(prediction))
+                pred, conf = predict(img_np)
 
-            predicted_letter = labels.get(pred_index, "Unknown")
+                st.image(img, caption=file.name, width=250)
+                st.success(f"Prediction: {pred}")
+                st.info(f"Confidence: {conf:.4f}")
 
-            st.success(f"Prediction: {predicted_letter}")
-            st.info(f"Confidence: {confidence:.4f}")
+                st.divider()
 
-            st.divider()
+
+# ==========================================================
+# CAMERA MODE WITH BOUNDING BOX
+# ==========================================================
+else:
+
+    camera_image = st.camera_input("Take a picture")
+
+    if camera_image:
+
+        img = Image.open(camera_image).convert("RGB")
+        img_np = np.array(img)
+
+        frame = img_np.copy()
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+        # Threshold for contour detection
+        _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+
+        contours, _ = cv2.findContours(
+            thresh,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if contours:
+
+            # Get largest contour (assumed hand)
+            c = max(contours, key=cv2.contourArea)
+
+            x, y, w, h = cv2.boundingRect(c)
+
+            roi = frame[y:y+h, x:x+w]
+
+            pred, conf = predict(roi)
+
+            # Draw bounding box
+            cv2.rectangle(
+                frame,
+                (x, y),
+                (x+w, y+h),
+                (0,255,0),
+                3
+            )
+
+            cv2.putText(
+                frame,
+                f"{pred} ({conf:.2f})",
+                (x, y-10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0,255,0),
+                2
+            )
+
+        st.image(frame, caption="Detection Result")
