@@ -51,7 +51,6 @@ def preprocess(image, session):
 
     input_shape = session.get_inputs()[0].shape
 
-    # detect expected height/width
     if input_shape[1] == 3:
         height = input_shape[2]
         width = input_shape[3]
@@ -78,31 +77,37 @@ def preprocess(image, session):
 
 
 # -------------------------
-# IMAGE UPLOAD
+# MULTIPLE IMAGE UPLOAD
 # -------------------------
-uploaded = st.file_uploader(
-    "Upload an image",
-    type=["jpg","jpeg","png"]
+uploaded_files = st.file_uploader(
+    "Upload one or more images",
+    type=["jpg","jpeg","png"],
+    accept_multiple_files=True
 )
 
-if uploaded:
+if uploaded_files:
 
-    img = Image.open(uploaded).convert("RGB")
-    st.image(img, caption="Uploaded Image")
+    if st.button("Predict All Images"):
 
-    if st.button("Predict"):
+        for file in uploaded_files:
 
-        input_data = preprocess(img, session)
+            img = Image.open(file).convert("RGB")
 
-        prediction = session.run(
-            [output_name],
-            {input_name: input_data}
-        )[0]
+            st.image(img, caption=file.name, width=200)
 
-        pred_index = int(np.argmax(prediction))
-        confidence = float(np.max(prediction))
+            input_data = preprocess(img, session)
 
-        predicted_letter = labels.get(pred_index, "Unknown")
+            prediction = session.run(
+                [output_name],
+                {input_name: input_data}
+            )[0]
 
-        st.success(f"Prediction: {predicted_letter}")
-        st.info(f"Confidence: {confidence:.4f}")
+            pred_index = int(np.argmax(prediction))
+            confidence = float(np.max(prediction))
+
+            predicted_letter = labels.get(pred_index, "Unknown")
+
+            st.success(f"Prediction: {predicted_letter}")
+            st.info(f"Confidence: {confidence:.4f}")
+
+            st.divider()
