@@ -136,53 +136,50 @@ else:
 
     camera_image = st.camera_input("Take a picture")
 
-    if camera_image:
+if camera_image:
 
-        img = Image.open(camera_image).convert("RGB")
-        img_np = np.array(img)
+    img = Image.open(camera_image).convert("RGB")
+    frame = np.array(img)
 
-        frame = img_np.copy()
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    thresh = cv2.adaptiveThreshold(
+        gray,255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        11,2
+    )
 
-        # Threshold for contour detection
-        _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+    contours,_ = cv2.findContours(
+        thresh,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
 
-        contours, _ = cv2.findContours(
-            thresh,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE
-        )
+    if contours:
 
-        if contours:
+        c = max(contours, key=cv2.contourArea)
 
-            # Get largest contour (assumed hand)
-            c = max(contours, key=cv2.contourArea)
+        x,y,w,h = cv2.boundingRect(c)
 
-            x, y, w, h = cv2.boundingRect(c)
+        if w > 20 and h > 20:
 
             roi = frame[y:y+h, x:x+w]
 
             pred, conf = predict(roi)
 
-            # Draw bounding box
-            cv2.rectangle(
-                frame,
-                (x, y),
-                (x+w, y+h),
-                (0,255,0),
-                3
-            )
+            cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),3)
 
             cv2.putText(
                 frame,
                 f"{pred} ({conf:.2f})",
-                (x, y-10),
+                (x,y-10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
                 (0,255,0),
                 2
             )
 
-        st.image(frame, caption="Detection Result")
+            st.image(roi, caption="Detected Hand")
+
+    st.image(frame, caption="Detection Result")
